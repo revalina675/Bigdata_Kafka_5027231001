@@ -8,3 +8,6 @@
 
 ![image](https://github.com/user-attachments/assets/956a2036-c3c2-41be-b2f7-8683e4475063)
 
+- Tampilan saat file `consumer_sensor.py` dijalankan menggunakan command `python consumer_sensor.py`
+
+![image](https://github.com/user-attachments/assets/6d3ef105-8f39-4b3c-96cc-4721ba2bcc2d)
