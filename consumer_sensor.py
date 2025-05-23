@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, when, current_timestamp, window, expr
+from pyspark.sql.functions import from_json, col, when, current_timestamp, expr
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 
 # Inisialisasi SparkSession dengan Kafka package
@@ -9,13 +9,12 @@ spark = SparkSession.builder \
     .getOrCreate()
 spark.sparkContext.setLogLevel("WARN")
 
-# Schema data suhu
+# Skema data suhu dan kelembaban
 schema_suhu = StructType([
     StructField("gudang_id", StringType()),
     StructField("suhu", IntegerType())
 ])
 
-# Schema data kelembaban
 schema_kelembaban = StructType([
     StructField("gudang_id", StringType()),
     StructField("kelembaban", IntegerType())
@@ -45,17 +44,18 @@ kelembaban_parsed = kelembaban_df.selectExpr("CAST(value AS STRING) as json") \
     .select("data.*") \
     .withColumn("timestamp", current_timestamp())
 
-# Tambahkan watermark untuk toleransi delay data stream
+# Tambahkan watermark
 suhu_with_watermark = suhu_parsed.withWatermark("timestamp", "20 seconds")
 kelembaban_with_watermark = kelembaban_parsed.withWatermark("timestamp", "20 seconds")
 
-# Join stream berdasarkan gudang_id dan window waktu 10 detik
+# Join berdasarkan gudang_id dan rentang waktu 10 detik
 joined_df = suhu_with_watermark.join(
     kelembaban_with_watermark,
-    on=( (suhu_with_watermark.gudang_id == kelembaban_with_watermark.gudang_id) &
-         (suhu_with_watermark.timestamp >= kelembaban_with_watermark.timestamp - expr("interval 10 seconds")) &
-         (suhu_with_watermark.timestamp <= kelembaban_with_watermark.timestamp + expr("interval 10 seconds"))
-       ),
+    on=(
+        (suhu_with_watermark.gudang_id == kelembaban_with_watermark.gudang_id) &
+        (suhu_with_watermark.timestamp >= kelembaban_with_watermark.timestamp - expr("interval 10 seconds")) &
+        (suhu_with_watermark.timestamp <= kelembaban_with_watermark.timestamp + expr("interval 10 seconds"))
+    ),
     how="inner"
 )
 
@@ -77,11 +77,23 @@ result_df = joined_df.select(
     .otherwise("[Aman] Tidak ada peringatan")
 )
 
-# Tampilkan hasil ke console
+# Fungsi custom untuk mencetak hasil dalam format teks baris
+def format_and_print(batch_df, epoch_id):
+    records = batch_df.collect()
+    if not records:
+        return
+
+    print("\n[HASIL MONITORING GUDANG]")
+    for row in records:
+        print(f"\nGudang {row['gudang_id']}:")
+        print(f"- Suhu: {row['suhu']}°C")
+        print(f"- Kelembaban: {row['kelembaban']}%")
+        print(f"- Status: {row['status']}")
+
+# Streaming dengan sink foreachBatch untuk output custom
 query = result_df.writeStream \
+    .foreachBatch(format_and_print) \
     .outputMode("append") \
-    .format("console") \
-    .option("truncate", False) \
     .start()
 
 query.awaitTermination()
